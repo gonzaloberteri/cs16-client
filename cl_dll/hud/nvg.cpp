@@ -34,6 +34,30 @@ version.
 #include "r_efx.h"
 #include "dlight.h"
 
+// on the ray traced renderer the NVG is simulated by the engine post-process
+// (exposure gain, desaturation, vignette) driven through this cvar; the dlight
+// hack below only works with the classic lightmapped renderer
+static cvar_t *NVG_RtCvar( void )
+{
+	static bool checked = false;
+	static cvar_t *rtNvg = NULL;
+
+	if( !checked )
+	{
+		rtNvg = gEngfuncs.pfnGetCvarPointer( "_rt_nvg" );
+		checked = true;
+	}
+	return rtNvg;
+}
+
+static void NVG_RtEnable( bool enable )
+{
+	cvar_t *rtNvg = NVG_RtCvar();
+
+	if( rtNvg && ( rtNvg->value != 0.0f ) != enable )
+		gEngfuncs.Cvar_SetValue( "_rt_nvg", enable ? 1.0f : 0.0f );
+}
+
 int CHudNVG::Init()
 {
 	HOOK_MESSAGE( gHUD.m_NVG, NVGToggle);
@@ -60,6 +84,11 @@ int CHudNVG::Draw(float flTime)
 	}
 
 	gEngfuncs.pfnFillRGBABlend(0, 0, ScreenWidth, ScreenHeight, 50, 225, 50, m_iAlpha);
+
+	// ray traced renderer: light amplification is done by the engine
+	// post-process, a dynamic light would just make the viewmodel glow
+	if( NVG_RtCvar( ))
+		return 1;
 
 	// draw a dynamic light on player's origin
 	if( cl_fancy_nvg->value )
@@ -102,6 +131,8 @@ void CHudNVG::Reset( void )
 {
 	m_iFlags = 0;
 
+	NVG_RtEnable( false );
+
 	if( m_pLight )
 	{
 		m_pLight->die = 0; // engine will remove this immediately
@@ -115,6 +146,8 @@ int CHudNVG::MsgFunc_NVGToggle(const char *pszName, int iSize, void *pbuf)
 	BufferReader reader( pszName, pbuf, iSize );
 
 	m_iFlags = reader.ReadByte() ? HUD_DRAW : 0;
+
+	NVG_RtEnable( m_iFlags != 0 );
 
 	if( m_pLight )
 	{
