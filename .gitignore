@@ -64,3 +64,5 @@ release/
 *.tasks
 regamebuild/
 .vs/
+# local build/install output
+stage/
