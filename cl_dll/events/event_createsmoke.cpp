@@ -28,6 +28,7 @@
 #include "events.h"
 
 #include "com_model.h"
+#include "smoke_volume.h"
 
 #define SMOKE_CLOUDS 20
 
@@ -37,6 +38,11 @@ void EV_CreateSmoke(event_args_s *args)
 
 	if( !args->bparam2 ) //first explosion
 	{
+		if( SmokeVolume_Enabled( ))
+		{
+			SmokeVolume_Create( args->origin );
+			return;
+		}
 		const model_t *pGasModel = gEngfuncs.GetSpritePointer(gHUD.m_hGasPuff);
 
 		for( int i = 0; i < SMOKE_CLOUDS; i++ )

@@ -16,6 +16,7 @@
 #include "triangleapi.h"
 #include "particleman.h"
 #include "environment.h"
+#include "smoke_volume.h"
 
 extern int g_iWaterLevel;
 
@@ -71,4 +72,6 @@ void DLLEXPORT HUD_DrawTransparentTriangles( void )
 		g_pParticleMan->Update();
 		g_Environment.Update();
 	}
+
+	SmokeVolume_Draw();
 }

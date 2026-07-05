@@ -26,6 +26,7 @@
 #include "ev_hldm.h"
 #include "particleman.h"
 #include "particleman_internal.h"
+#include "smoke_volume.h"
 
 extern vec3_t v_origin;
 
@@ -407,8 +408,15 @@ void DLLEXPORT HUD_TempEntUpdate (
 	if ( g_pParticleMan )
 		g_pParticleMan->SetVariables( cl_gravity, vAngles );
 
+	if ( frametime > 0.0 && SmokeVolume_Enabled() )
+	{
+		// grenade explosions punch holes into smoke volumes
+		SmokeVolume_ScanExplosions( *ppTempEntActive );
+		SmokeVolume_Update( frametime, client_time );
+	}
+
 	// Nothing to simulate
-	if ( !*ppTempEntActive )		
+	if ( !*ppTempEntActive )
 		return;
 
 	// in order to have tents collide with players, we have to run the player prediction code so

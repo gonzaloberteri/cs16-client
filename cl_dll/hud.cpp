@@ -31,6 +31,7 @@
 #include "demo_api.h"
 #include "vgui_parser.h"
 #include "environment.h"
+#include "smoke_volume.h"
 
 #include "camera.h"
 
@@ -318,6 +319,8 @@ void CHud :: Init( void )
 	CVAR_CREATE( "_cl_autowepswitch", "1", FCVAR_ARCHIVE | FCVAR_USERINFO );
 	CVAR_CREATE( "_ah", "0", FCVAR_ARCHIVE | FCVAR_USERINFO );
 
+	SmokeVolume_Init();
+
 	// TODO remove hack later
 	CVAR_CREATE( "numericalmenu", "1", FCVAR_ARCHIVE );
 	CVAR_CREATE( "numericalmenu_clientonly", "1", FCVAR_ARCHIVE );
@@ -560,6 +563,8 @@ void CHud :: VidInit( void )
 	m_iFontHeight = GetSpriteRect(m_HUD_number_0).Height();
 
 	m_hGasPuff = SPR_Load("sprites/gas_puff_01.spr");
+
+	SmokeVolume_Reset();
 
 	for( HUDLIST *pList = m_pHudList; pList; pList = pList->pNext )
 		pList->p->VidInit();
