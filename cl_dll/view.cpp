@@ -8,6 +8,7 @@
 // view/refresh setup functions
 
 #include <string.h>
+#include <stdlib.h> // atof (RT photo-shoot)
 
 #include "hud.h"
 #include "pm_math.h"
@@ -1845,6 +1846,171 @@ void V_CalcThirdPersonRefdef( ref_params_t *pparams )
 	ent->latched.prevangles[PITCH] = pitch;
 }
 
+// ---------------------------------------------------------------------------
+// RT photo-shoot: drive the view through a queued list of (origin, angles),
+// let the path tracer converge, screenshot each, then quit. Used to capture
+// clean, UI-free map-overview stills (the trigger_camera team-select vantage
+// points). Every timing knob is a cvar so it can be tuned from a .cfg without
+// rebuilding the client.
+//   rt_shot_add <x> <y> <z> <pitch> <yaw> <roll>   queue one shot
+//   rt_shot_go                                      run the sequence
+//   rt_shot_clear                                   reset the queue
+// ---------------------------------------------------------------------------
+#define RT_MAX_SHOTS 64
+static int     rt_shot_count = 0;
+static vec3_t  rt_shot_org[RT_MAX_SHOTS];
+static vec3_t  rt_shot_ang[RT_MAX_SHOTS];
+static int     rt_shot_active = 0;
+static int     rt_shot_phase  = 0;   // 0 = joining (menu clear), 1 = capturing
+static int     rt_shot_index  = 0;
+static int     rt_shot_frames = 0;
+static int     rt_shot_settle = 0;   // frames since spawn (let appearance menu clear)
+static cvar_t *rt_shot_warmup     = NULL;   // frames to let RT converge before capture
+static cvar_t *rt_shot_startdelay = NULL;   // frames to wait after join before first shot
+static cvar_t *rt_shot_autoquit   = NULL;
+static cvar_t *rt_shot_join       = NULL;   // 1st join step: pick team (opens class menu)
+static cvar_t *rt_shot_join2      = NULL;   // 2nd join step: pick class (spawns us in)
+
+static void RT_IssueCmd( const char *s )
+{
+	char cmd[256];
+	strncpy( cmd, s, sizeof( cmd ) - 2 );
+	cmd[sizeof( cmd ) - 2] = '\0';
+	strcat( cmd, "\n" );
+	gEngfuncs.pfnClientCmd( cmd );
+}
+
+static void RT_ShotClear_f( void )
+{
+	rt_shot_count  = 0;
+	rt_shot_active = 0;
+}
+
+static void RT_ShotAdd_f( void )
+{
+	if ( gEngfuncs.Cmd_Argc() < 7 )
+	{
+		gEngfuncs.Con_Printf( "usage: rt_shot_add <x> <y> <z> <pitch> <yaw> <roll>\n" );
+		return;
+	}
+	if ( rt_shot_count >= RT_MAX_SHOTS )
+	{
+		gEngfuncs.Con_Printf( "rt_shot_add: queue full (%d)\n", RT_MAX_SHOTS );
+		return;
+	}
+	rt_shot_org[rt_shot_count][0] = (float)atof( gEngfuncs.Cmd_Argv( 1 ) );
+	rt_shot_org[rt_shot_count][1] = (float)atof( gEngfuncs.Cmd_Argv( 2 ) );
+	rt_shot_org[rt_shot_count][2] = (float)atof( gEngfuncs.Cmd_Argv( 3 ) );
+	rt_shot_ang[rt_shot_count][0] = (float)atof( gEngfuncs.Cmd_Argv( 4 ) );
+	rt_shot_ang[rt_shot_count][1] = (float)atof( gEngfuncs.Cmd_Argv( 5 ) );
+	rt_shot_ang[rt_shot_count][2] = (float)atof( gEngfuncs.Cmd_Argv( 6 ) );
+	rt_shot_count++;
+}
+
+static void RT_ShotGo_f( void )
+{
+	if ( rt_shot_count <= 0 )
+	{
+		gEngfuncs.Con_Printf( "rt_shot_go: nothing queued\n" );
+		return;
+	}
+	rt_shot_active = 1;
+	rt_shot_phase  = 0;
+	rt_shot_index  = 0;
+	rt_shot_frames = 0;
+	rt_shot_settle = 0;
+	gEngfuncs.pfnClientCmd( "hud_draw 0\n" );
+	gEngfuncs.pfnClientCmd( "crosshair 0\n" );
+	// note: rt_classic is left to the caller's cfg so the same photo-shoot can grab
+	// both the ray-traced (rt_classic 0) and classic-raster (rt_classic 1) pipelines.
+	gEngfuncs.pfnClientCmd( "cl_showfps 0\n" );
+	gEngfuncs.pfnClientCmd( "net_graph 0\n" );
+	gEngfuncs.pfnClientCmd( "r_speeds 0\n" );
+	gEngfuncs.Con_Printf( "rt_shot_go: running %d shot(s)\n", rt_shot_count );
+}
+
+static void V_PhotoShoot_Frame( ref_params_t *pparams )
+{
+	if ( !rt_shot_active )
+		return;
+
+	// join phase: we only reach here once the client is actually rendering the
+	// world (i.e. connected). Fire the join command so the team-select menu goes
+	// away, then wait startdelay frames for it to take effect.
+	if ( rt_shot_phase == 0 )
+	{
+		// We've actually spawned once we have health and aren't spectating. The
+		// ~6s intro-camera / MOTD state ignores jointeam, so retry the whole join
+		// cycle (jointeam -> class menu -> joinclass) until it takes, then capture.
+		if ( pparams->health > 0 && !pparams->spectator )
+		{
+			// spawned: wait for the appearance-menu character preview to fully
+			// clear before capturing, otherwise the first grab is a torn frame.
+			if ( pparams->nextView == 0 )
+				rt_shot_settle++;
+			if ( rt_shot_settle >= 150 )
+			{
+				rt_shot_phase  = 1;
+				rt_shot_frames = 0;
+			}
+			return;
+		}
+		rt_shot_settle = 0;
+		if ( pparams->nextView == 0 )
+			rt_shot_frames++;
+		int c = rt_shot_frames % 90;   // one join attempt per 90 frames
+		if ( c == 30 && rt_shot_join  && rt_shot_join->string[0] )  RT_IssueCmd( rt_shot_join->string );
+		if ( c == 60 && rt_shot_join2 && rt_shot_join2->string[0] ) RT_IssueCmd( rt_shot_join2->string );
+		// safety net: capture anyway if we somehow never spawn
+		int cap = rt_shot_startdelay ? (int)rt_shot_startdelay->value : 900;
+		if ( rt_shot_frames >= cap )
+		{
+			rt_shot_phase  = 1;
+			rt_shot_frames = 0;
+		}
+		return;
+	}
+
+	// capture phase: force the view to the current shot, drop the viewmodel, and
+	// force a full 3D world render (in case a spectator sub-mode set onlyClientDraw).
+	VectorCopy( rt_shot_org[rt_shot_index], pparams->vieworg );
+	VectorCopy( rt_shot_ang[rt_shot_index], pparams->viewangles );
+	VectorCopy( pparams->vieworg,   v_origin );
+	VectorCopy( pparams->viewangles, v_angles );
+	pparams->onlyClientDraw = 0;
+	{
+		cl_entity_t *vm = gEngfuncs.GetViewModel();
+		if ( vm ) vm->model = NULL;
+	}
+
+	if ( pparams->nextView != 0 )
+		return;   // count only the primary full-screen pass
+
+	int warm = rt_shot_warmup ? (int)rt_shot_warmup->value : 40;
+	rt_shot_frames++;
+
+	// At `warm` the RT image has converged: fire the engine screenshot. That png is
+	// black under RT (glReadPixels can't see the Vulkan swapchain), but its creation
+	// is the signal for the external screen-grabber. Hold ~90 more frames so the
+	// grabber can CopyFromScreen this camera before we move to the next one.
+	if ( rt_shot_frames == warm )
+	{
+		gEngfuncs.pfnClientCmd( "screenshot\n" );
+	}
+	else if ( rt_shot_frames >= warm + 90 )
+	{
+		rt_shot_index++;
+		rt_shot_frames = 0;
+		if ( rt_shot_index >= rt_shot_count )
+		{
+			rt_shot_active = 0;
+			gEngfuncs.Con_Printf( "rt_shot: done (%d shots)\n", rt_shot_count );
+			if ( rt_shot_autoquit && rt_shot_autoquit->value )
+				gEngfuncs.pfnClientCmd( "quit\n" );
+		}
+	}
+}
+
 void DLLEXPORT V_CalcRefdef( struct ref_params_s *pparams )
 {
 	// intermission / finale rendering
@@ -1864,6 +2030,8 @@ void DLLEXPORT V_CalcRefdef( struct ref_params_s *pparams )
 	{
 		V_CalcNormalRefdef ( pparams );
 	}
+
+	V_PhotoShoot_Frame( pparams );
 }
 
 /*
@@ -1878,6 +2046,16 @@ void V_Init (void)
 	scr_ofsx			= gEngfuncs.pfnRegisterVariable( "scr_ofsx","0", 0 );
 	scr_ofsy			= gEngfuncs.pfnRegisterVariable( "scr_ofsy","0", 0 );
 	scr_ofsz			= gEngfuncs.pfnRegisterVariable( "scr_ofsz","0", 0 );
+
+	// RT photo-shoot (see V_PhotoShoot_Frame)
+	rt_shot_warmup		= gEngfuncs.pfnRegisterVariable( "rt_shot_warmup", "40", 0 );
+	rt_shot_startdelay	= gEngfuncs.pfnRegisterVariable( "rt_shot_startdelay", "900", 0 );
+	rt_shot_autoquit	= gEngfuncs.pfnRegisterVariable( "rt_shot_autoquit", "1", 0 );
+	rt_shot_join		= gEngfuncs.pfnRegisterVariable( "rt_shot_join", "jointeam 1", 0 );
+	rt_shot_join2		= gEngfuncs.pfnRegisterVariable( "rt_shot_join2", "joinclass 1", 0 );
+	gEngfuncs.pfnAddCommand( "rt_shot_add", RT_ShotAdd_f );
+	gEngfuncs.pfnAddCommand( "rt_shot_go", RT_ShotGo_f );
+	gEngfuncs.pfnAddCommand( "rt_shot_clear", RT_ShotClear_f );
 
 	v_centermove		= gEngfuncs.pfnRegisterVariable( "v_centermove", "0.15", 0 );
 	v_centerspeed		= gEngfuncs.pfnRegisterVariable( "v_centerspeed","500", 0 );
