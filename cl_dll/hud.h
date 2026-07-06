@@ -166,6 +166,9 @@ public:
 	void SetCrosshair( HSPRITE hSpr, wrect_t rect, int r, int g, int b );
 	void HideCrosshair();
 
+	// currently selected weapon (used by the scope-lens tuner overlay)
+	WEAPON *GetCurrentWeapon() { return m_pWeapon; }
+
 	// replace engine's buggy crosshair
 	void DrawSpriteCrosshair();
 
@@ -864,6 +867,35 @@ private:
 //
 //-----------------------------------------------------
 //
+// on-screen tuner for the ray-traced viewmodel scope lens (rt_scope_vm_* cvars):
+// cycle a parameter and nudge it live so the lens can be dialled in per weapon
+class CHudScopeTune: public CHudBase
+{
+public:
+	int Init( void );
+	int VidInit( void );
+	int Draw( float flTime );
+	CHudUserCmd(Toggle);
+	CHudUserCmd(Dump);
+
+	// mouse driving - called from the input code (input_xash3d.cpp) while the
+	// panel is open: the look deltas move a virtual cursor instead of the view,
+	// and the mouse buttons drive the sliders instead of firing the weapon.
+	bool IsActive( void );
+	void MoveCursor( float dyaw, float dpitch );
+	void SetMouse( int mstate );
+
+private:
+	cvar_t *m_pShow;
+	cvar_t *m_pCursor;
+	float   m_curX, m_curY;
+	int     m_iDrag;
+	bool    m_bDown, m_bPrev, m_bInit;
+};
+
+//
+//-----------------------------------------------------
+//
 
 class CHudNVG: public CHudBase
 {
@@ -1085,6 +1117,7 @@ public:
 	CHudRadio       m_Radio;
 	CHudProgressBar m_ProgressBar;
 	CHudSniperScope m_SniperScope;
+	CHudScopeTune   m_ScopeTune;
 	CHudNVG         m_NVG;
 	CHudRadar       m_Radar;
 	CHudSpectatorGui m_SpectatorGui;

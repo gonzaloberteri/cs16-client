@@ -35,6 +35,31 @@ version.
 
 #include "draw_util.h"
 
+// On the ray-traced engine the scope is more than a flat 2D mask: the ref
+// renders a convex glass lens in front of the camera (RT_DrawScopeLens in
+// xash-rt) that refracts the zoomed view and catches real environment
+// reflections. Here we just flip the internal cvar _rt_scope while zoomed.
+// On the classic renderer that cvar does not exist, so nothing changes and
+// only the 2D overlay below is drawn (identical behaviour to before).
+static cvar_t *SniperScope_RtCvar( void )
+{
+	static bool checked = false;
+	static cvar_t *rtScope = NULL;
+	if( !checked )
+	{
+		rtScope = gEngfuncs.pfnGetCvarPointer( "_rt_scope" );
+		checked = true;
+	}
+	return rtScope;
+}
+
+static void SniperScope_SetRt( float value )
+{
+	cvar_t *rtScope = SniperScope_RtCvar();
+	if( rtScope && rtScope->value != value )
+		gEngfuncs.Cvar_SetValue( "_rt_scope", value );
+}
+
 int CHudSniperScope::Init()
 {
 	if( g_iXash )
@@ -82,7 +107,12 @@ inline void DrawTexture( int tex, float x1, float y1, float x2, float y2 )
 int CHudSniperScope::Draw(float flTime)
 {
 	if(gHUD.m_iFOV > 40)
+	{
+		SniperScope_SetRt( 0.0f );	// not scoped: switch the RT lens off
 		return 1;
+	}
+
+	SniperScope_SetRt( 1.0f );		// scoped: engine draws the convex RT glass lens
 
 	gEngfuncs.pTriAPI->RenderMode(kRenderTransColor);
 	gEngfuncs.pTriAPI->Brightness(1.0);
@@ -111,6 +141,8 @@ int CHudSniperScope::Draw(float flTime)
 
 void CHudSniperScope::Shutdown()
 {
+	SniperScope_SetRt( 0.0f );	// don't leave the RT lens enabled
+
 	for( int i = 0; i < 4; i++ )
 		gRenderAPI.GL_FreeTexture( m_iScopeArc[i] );
 }

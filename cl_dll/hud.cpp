@@ -392,6 +392,7 @@ void CHud :: Init( void )
 
 	// fullscreen overlays
 	m_SniperScope.Init();
+	m_ScopeTune.Init();
 	m_NVG.Init();
 
 	// Game HUD things
