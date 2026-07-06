@@ -897,6 +897,33 @@ private:
 //-----------------------------------------------------
 //
 
+// Mouse-driven slider panel for the box3d drop-physics feel cvars (phys_*).
+// Same mechanism as CHudScopeTune; tunes server cvars on a listen server.
+class CHudPhysTune: public CHudBase
+{
+public:
+	int Init( void );
+	int VidInit( void );
+	int Draw( float flTime );
+	CHudUserCmd(Toggle);
+	CHudUserCmd(Dump);
+
+	bool IsActive( void );
+	void MoveCursor( float dyaw, float dpitch );
+	void SetMouse( int mstate );
+
+private:
+	cvar_t *m_pShow;
+	cvar_t *m_pCursor;
+	float   m_curX, m_curY;
+	int     m_iDrag;
+	bool    m_bDown, m_bPrev, m_bInit;
+};
+
+//
+//-----------------------------------------------------
+//
+
 class CHudNVG: public CHudBase
 {
 public:
@@ -1118,6 +1145,7 @@ public:
 	CHudProgressBar m_ProgressBar;
 	CHudSniperScope m_SniperScope;
 	CHudScopeTune   m_ScopeTune;
+	CHudPhysTune    m_PhysTune;
 	CHudNVG         m_NVG;
 	CHudRadar       m_Radar;
 	CHudSpectatorGui m_SpectatorGui;

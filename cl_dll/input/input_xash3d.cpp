@@ -173,6 +173,11 @@ void IN_Move( float frametime, usercmd_t *cmd )
 		gHUD.m_ScopeTune.MoveCursor( rel_yaw, rel_pitch );
 		rel_yaw = rel_pitch = 0.0f;
 	}
+	else if( gHUD.m_PhysTune.IsActive() )
+	{
+		gHUD.m_PhysTune.MoveCursor( rel_yaw, rel_pitch );
+		rel_yaw = rel_pitch = 0.0f;
+	}
 
 	if( gHUD.GetSensitivity() != 0 )
 	{
@@ -232,10 +237,13 @@ void DLLEXPORT IN_MouseEvent( int mstate )
 {
 	static int mouse_oldbuttonstate;
 
-	// scope-lens tuner open: the mouse drives the slider panel, not the weapon
-	if( gHUD.m_ScopeTune.IsActive() )
+	// scope-lens / physics tuner open: the mouse drives the slider panel, not the weapon
+	if( gHUD.m_ScopeTune.IsActive() || gHUD.m_PhysTune.IsActive() )
 	{
-		gHUD.m_ScopeTune.SetMouse( mstate );
+		if( gHUD.m_ScopeTune.IsActive() )
+			gHUD.m_ScopeTune.SetMouse( mstate );
+		else
+			gHUD.m_PhysTune.SetMouse( mstate );
 		for( int i = 0; i < 5; i++ ) // release anything held so nothing sticks
 			if( mouse_oldbuttonstate & ( 1 << i ) )
 				gEngfuncs.Key_Event( K_MOUSE1 + i, 0 );

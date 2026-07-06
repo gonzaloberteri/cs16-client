@@ -10,3 +10,6 @@
 [submodule "3rdparty/miniutl"]
 	path = 3rdparty/miniutl
 	url = https://github.com/FWGS/MiniUTL
+[submodule "3rdparty/box3d"]
+	path = 3rdparty/box3d
+	url = https://github.com/erincatto/box3d.git
